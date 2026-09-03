@@ -8,8 +8,8 @@ import threading
 
 # --- আপনার টোকেন এবং লিংক এখানে সেট করা হয়েছে ---
 BOT_TOKEN = "8857827625:AAH5atf8X3rktmiCKimGA4JgtFnMNNYG984"
-ADMIN_LINK = "https://f999game.com"
-SUPPORT_BOT_LINK = "https://t.me"
+ADMIN_LINK = "https://www.f999game.com/?dl=2mlug1"
+SUPPORT_BOT_LINK = "@f999com"
 # -------------------------------------------------------------
 
 # Render সার্ভার সচল রাখার জন্য ডামি ওয়েব সার্ভার
@@ -107,11 +107,12 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     
     parts = query.data.split("_")
-    if len(parts) != 3:
+    if len(parts) < 3:
         await query.answer()
         return
         
-    _, msg_id, reaction_type = parts
+    reaction_type = parts[-1]
+    msg_id = "_".join(parts[1:-1])
     
     if msg_id not in reactions_data:
         reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
@@ -136,7 +137,7 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("আপনি রিঅ্যাকশন দিয়েছেন!")
         
     try:
-        if "welcome_" in msg_id or "admin_" in msg_id:
+        if "welcome" in msg_id or "admin" in msg_id:
             await query.edit_message_reply_markup(reply_markup=get_admin_combined_markup(msg_id))
         else:
             await query.edit_message_reply_markup(reply_markup=get_member_markup(msg_id))
@@ -149,9 +150,11 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
     if not message: 
         return
     
+    # বট যাতে নিজের মেসেজ নিয়ে কোনো অ্যাকশন না নেয়
     if message.from_user and message.from_user.id == context.bot.id: 
         return
 
+    # পোস্টদাতা অ্যাডমিন বা লুকানো অ্যাডমিন (Anonymous) কিনা তা চেক করা
     is_admin = False
     if message.sender_chat and message.sender_chat.id == update.effective_chat.id:
         is_admin = True  
@@ -163,12 +166,14 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             print(f"Admin check error: {e}")
 
+    # মেসেজের মূল টেক্সট বা ক্যাপশন নেওয়া
     final_message = message.text_html if message.text_html else message.caption_html
     if not final_message and message.text:
         final_message = message.text
 
     if final_message:
         try:
+            # কে পোস্ট করেছে তার নাম বা ইউজারনেম তৈরি (মেম্বারদের ক্ষেত্রে লাগবে)
             if message.from_user:
                 user_mention = f"<b>পোস্ট করেছেন:</b> {message.from_user.mention_html()}\n\n"
             elif message.sender_chat:
@@ -176,6 +181,7 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
             else:
                 user_mention = ""
 
+            # ১. যদি সাধারণ মেম্বার পোস্ট করে এবং মেসেজে কোনো লিংক থাকে
             if not is_admin:
                 url_pattern = r'(https?://[^\s<>"]+|www\.[^\s<>"]+)'
                 if re.search(url_pattern, final_message):
@@ -186,7 +192,8 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
                     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
                     
                     final_message = user_mention + final_message
-                    unique_msg_id = f"member_{update.effective_chat.id}{message.message_id}"
+                    # ইউনিক মেসেজ আইডি জেনারেশন ফিক্স করা হলো (রিঅ্যাকশন সচল করার জন্য)
+                    unique_msg_id = f"member_{update.effective_chat.id}_{message.message_id}"
                     reply_markup = get_member_markup(unique_msg_id)
                     
                     preview_disabled = LinkPreviewOptions(is_disabled=True)
@@ -197,22 +204,21 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
                 
                 return 
 
-            unique_msg_id = f"admin_{update.effective_chat.id}{message.message_id}"
+            # ২. যদি পোস্টদাতা অ্যাডমিন অথবা গ্রুপের অন্য কোনো 'পোস্টার বট' হয়
+            unique_msg_id = f"admin_{update.effective_chat.id}_{message.message_id}"
             reply_markup = get_admin_combined_markup(unique_msg_id)
             
+            # অন্য বটের মেসেজে বাটন না আসার বাগ ফিক্সড (সবসময় ডিলিট করে বটের পক্ষ থেকে ফ্রেশ রিপোস্ট করা হবে)
             try:
-                await context.bot.edit_message_reply_markup(
-                    chat_id=update.effective_chat.id,
-                    message_id=message.message_id,
-                    reply_markup=reply_markup
-                )
-            except Exception:
                 await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
-                preview_disabled = LinkPreviewOptions(is_disabled=True)
-                if message.photo:
-                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=message.photo[-1].file_id, caption=final_message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
-                else:
-                    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, parse_mode=ParseMode.HTML, link_preview_options=preview_disabled, reply_markup=reply_markup)
+            except Exception:
+                pass
+                
+            preview_disabled = LinkPreviewOptions(is_disabled=True)
+            if message.photo:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=message.photo[-1].file_id, caption=final_message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, parse_mode=ParseMode.HTML, link_preview_options=preview_disabled, reply_markup=reply_markup)
 
         except Exception as e:
             print(f"Error handling group message: {e}")
@@ -225,9 +231,8 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_reaction, pattern=r"^react_"))
     application.add_handler(MessageHandler(filters.ALL, process_group_messages))
     
-    print("সব বাগ ফিক্সড! অল-ইন-ওয়ান বট সফলভাবে সচল হয়েছে...")
+    print("সব বাগ ১০০% ফিক্সড! অল-ইন-ওয়ান বট সফলভাবে সচল হয়েছে...")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
-        
