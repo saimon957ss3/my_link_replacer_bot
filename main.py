@@ -8,8 +8,8 @@ import threading
 
 # --- আপনার টোকেন এবং লিংক এখানে সেট করা হয়েছে ---
 BOT_TOKEN = "8857827625:AAH5atf8X3rktmiCKimGA4JgtFnMNNYG984"
-ADMIN_LINK = "https://www.f999game.com/?dl=2mlug1"
-SUPPORT_BOT_LINK = "@f999com"
+ADMIN_LINK = "https://f999game.com"
+SUPPORT_BOT_LINK = "https://t.me"
 # -------------------------------------------------------------
 
 # Render সার্ভার সচল রাখার জন্য ডামি ওয়েব সার্ভার
@@ -48,7 +48,7 @@ def get_member_markup(msg_id):
     ]]
     return InlineKeyboardMarkup(keyboard)
 
-# --- অ্যাডমিন বা বটের নিজের পোস্টের জন্য সব বাটন একসাথে ---
+# --- অ্যাডমিন বা অন্যান্য বটের পোস্টের জন্য সব বাটন একসাথে ---
 def get_admin_combined_markup(msg_id):
     if msg_id not in reactions_data:
         reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
@@ -61,14 +61,11 @@ def get_admin_combined_markup(msg_id):
     dislike_text = f"👎 {data['dislike']}" if data['dislike'] > 0 else "👎"
     
     keyboard = [
-        # ১. আকর্ষণীয় রেজিস্ট্রেশন বোনাস বাটন
         [InlineKeyboardButton("🔴 রেজিস্ট্রেশন করে ২০০ টাকা বোনাস পান 🔴", url=ADMIN_LINK)],
-        # ২. গ্রাহক সেবা এবং লগ ইন বাটন (গ্রাহক সেবায় সাপোর্ট বটের লিংক দেওয়া হয়েছে)
         [
             InlineKeyboardButton("📞 গ্রাহক সেবা", url=SUPPORT_BOT_LINK),
             InlineKeyboardButton("🔐 লগ ইন", url=ADMIN_LINK)
         ],
-        # ৩. ৪টি রিঅ্যাকশন বাটন
         [
             InlineKeyboardButton(love_text, callback_data=f"react_{msg_id}_love"),
             InlineKeyboardButton(fire_text, callback_data=f"react_{msg_id}_fire"),
@@ -104,7 +101,6 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         except Exception as e:
             print(f"Error sending welcome message: {e}")
-
 # --- বাটনে ক্লিক করলে রিঅ্যাকশন কাউন্ট করার ফাংশন ---
 async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -153,64 +149,71 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
     if not message: 
         return
     
-    if message.from_user and message.from_user.is_bot: 
+    if message.from_user and message.from_user.id == context.bot.id: 
         return
 
-    # পোস্টদাতা অ্যাডমিন কিনা তা চেক করা
     is_admin = False
-    try:
-        chat_admins = await context.bot.get_chat_administrators(update.effective_chat.id)
-        if any(admin.user.id == message.from_user.id for admin in chat_admins):
-            is_admin = True
-    except Exception as e:
-        print(f"Admin check error: {e}")
-        return
+    if message.sender_chat and message.sender_chat.id == update.effective_chat.id:
+        is_admin = True  
+    else:
+        try:
+            chat_admins = await context.bot.get_chat_administrators(update.effective_chat.id)
+            if any(admin.user.id == message.from_user.id for admin in chat_admins if message.from_user):
+                is_admin = True
+        except Exception as e:
+            print(f"Admin check error: {e}")
 
-    # মেসেজের মূল টেক্সট বা ক্যাপশন নেওয়া
     final_message = message.text_html if message.text_html else message.caption_html
     if not final_message and message.text:
         final_message = message.text
 
     if final_message:
         try:
-            # মেম্বার পোস্ট করলে লিংকের ভেতরে অ্যাডমিন গেম লিংক বসানো হবে
+            if message.from_user:
+                user_mention = f"<b>পোস্ট করেছেন:</b> {message.from_user.mention_html()}\n\n"
+            elif message.sender_chat:
+                user_mention = f"<b>পোস্ট করেছেন:</b> <b>{message.sender_chat.title}</b>\n\n"
+            else:
+                user_mention = ""
+
             if not is_admin:
                 url_pattern = r'(https?://[^\s<>"]+|www\.[^\s<>"]+)'
                 if re.search(url_pattern, final_message):
                     def replace_with_cloak(match):
                         return f'<a href="{ADMIN_LINK}">{match.group(0)}</a>'
                     final_message = re.sub(url_pattern, replace_with_cloak, final_message)
+                    
+                    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
+                    
+                    final_message = user_mention + final_message
+                    unique_msg_id = f"member_{update.effective_chat.id}{message.message_id}"
+                    reply_markup = get_member_markup(unique_msg_id)
+                    
+                    preview_disabled = LinkPreviewOptions(is_disabled=True)
+                    if message.photo:
+                        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=message.photo[-1].file_id, caption=final_message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    else:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, parse_mode=ParseMode.HTML, link_preview_options=preview_disabled, reply_markup=reply_markup)
+                
+                return 
 
-            # আসল পোস্টটি গ্রুপ থেকে ডিলিট করা
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
+            unique_msg_id = f"admin_{update.effective_chat.id}{message.message_id}"
+            reply_markup = get_admin_combined_markup(unique_msg_id)
             
-            preview_disabled = LinkPreviewOptions(is_disabled=True)
-            
-            # এডমিন এবং মেম্বারদের জন্য আলাদা বাটন সেট করা
-            if is_admin:
-                unique_msg_id = f"admin_{update.effective_chat.id}{message.message_id}"
-                reply_markup = get_admin_combined_markup(unique_msg_id)
-            else:
-                unique_msg_id = f"member_{update.effective_chat.id}{message.message_id}"
-                reply_markup = get_member_markup(unique_msg_id)
-            
-            # ছবিসহ পোস্ট হলে
-            if message.photo:
-                await context.bot.send_photo(
+            try:
+                await context.bot.edit_message_reply_markup(
                     chat_id=update.effective_chat.id,
-                    photo=message.photo[-1].file_id,
-                    caption=final_message,
-                    parse_mode=ParseMode.HTML,
+                    message_id=message.message_id,
                     reply_markup=reply_markup
                 )
-            else: # সাধারণ টেক্সট বা কোড হলে
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=final_message,
-                    parse_mode=ParseMode.HTML,
-                    link_preview_options=preview_disabled,
-                    reply_markup=reply_markup
-                )
+            except Exception:
+                await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
+                preview_disabled = LinkPreviewOptions(is_disabled=True)
+                if message.photo:
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=message.photo[-1].file_id, caption=final_message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                else:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, parse_mode=ParseMode.HTML, link_preview_options=preview_disabled, reply_markup=reply_markup)
+
         except Exception as e:
             print(f"Error handling group message: {e}")
 
@@ -222,8 +225,9 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_reaction, pattern=r"^react_"))
     application.add_handler(MessageHandler(filters.ALL, process_group_messages))
     
-    print("নতুন সাপোর্ট বটের লিংক সহ আপনার কাস্টম বট সফলভাবে সচল হয়েছে...")
+    print("সব বাগ ফিক্সড! অল-ইন-ওয়ান বট সফলভাবে সচল হয়েছে...")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
+        
