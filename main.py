@@ -6,7 +6,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes, Cal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-# --- আপনার নতুন লিংক এবং টোকেন এখানে সরাসরি বসানো হয়েছে ---
+# --- আপনার টোকেন এবং লিংক এখানে সেট করা হয়েছে ---
 BOT_TOKEN = "8857827625:AAH5atf8X3rktmiCKimGA4JgtFnMNNYG984"
 ADMIN_LINK = "https://f999game.com"
 # -------------------------------------------------------------
@@ -27,33 +27,28 @@ def run_server():
 # রিঅ্যাকশন কাউন্ট ট্র্যাক করার জন্য গ্লোবাল ডিকশনারি
 reactions_data = {}
 
-# --- নতুন মেম্বার জয়েন করলে ওয়েলকাম মেসেজ দেওয়ার ফাংশন ---
-async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-            
-        user_mention = member.mention_html()
-        
-        welcome_text = (
-            f"👋 <b>স্বাগতম {user_mention}, আমাদের গ্রুপে আপনাকে স্বাগতম!</b>\n\n"
-            f"🎮 আমাদের অফিশিয়াল গেম লিংকে জয়েন করতে নিচের লিংকে ক্লিক করুন:\n"
-            f"🔗 <a href='{ADMIN_LINK}'>এখানে ক্লিক করে জয়েন করুন</a>\n\n"
-            f"✨ আশা করি গ্রুপের সকল নিয়ম মেনে আমাদের সাথেই থাকবেন। ধন্যবাদ!"
-        )
-        
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=welcome_text,
-                parse_mode=ParseMode.HTML,
-                link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
-        except Exception as e:
-            print(f"Error sending welcome message: {e}")
+# --- শুধুমাত্র মেম্বারদের পোস্টের জন্য ৪টি রিঅ্যাকশন বাটন (অফার ছাড়া) ---
+def get_member_markup(msg_id):
+    if msg_id not in reactions_data:
+        reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
+    
+    data = reactions_data[msg_id]
+    
+    love_text = f"❤️ {data['love']}" if data['love'] > 0 else "❤️"
+    fire_text = f"🔥 {data['fire']}" if data['fire'] > 0 else "🔥"
+    like_text = f"👍 {data['like']}" if data['like'] > 0 else "👍"
+    dislike_text = f"👎 {data['dislike']}" if data['dislike'] > 0 else "👎"
+    
+    keyboard = [[
+        InlineKeyboardButton(love_text, callback_data=f"react_{msg_id}_love"),
+        InlineKeyboardButton(fire_text, callback_data=f"react_{msg_id}_fire"),
+        InlineKeyboardButton(like_text, callback_data=f"react_{msg_id}_like"),
+        InlineKeyboardButton(dislike_text, callback_data=f"react_{msg_id}_dislike")
+    ]]
+    return InlineKeyboardMarkup(keyboard)
 
-# --- রিঅ্যাকশন এবং লাল বোনাস বাটন তৈরি করার ফাংশন ---
-def get_combined_markup(msg_id):
+# --- অ্যাডমিন বা বটের নিজের পোস্টের জন্য সব বাটন একসাথে (ফুল অফারসহ) ---
+def get_admin_combined_markup(msg_id):
     if msg_id not in reactions_data:
         reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
     
@@ -65,9 +60,14 @@ def get_combined_markup(msg_id):
     dislike_text = f"👎 {data['dislike']}" if data['dislike'] > 0 else "👎"
     
     keyboard = [
-        # প্রথম লাইনে থাকবে লাল রঙের হাইলাইট করা ২০০ টাকা বোনাসের বাটনটি
+        # ১. আকর্ষণীয় রেজিস্ট্রেশন বোনাস বাটন
         [InlineKeyboardButton("🔴 রেজিস্ট্রেশন করে ২০০ টাকা বোনাস পান 🔴", url=ADMIN_LINK)],
-        # দ্বিতীয় লাইনে থাকবে আপনার ৪টি রিঅ্যাকশন বাটন
+        # ২. গ্রাহক সেবা এবং লগ ইন বাটন (এক লাইনে পাশাপাশি)
+        [
+            InlineKeyboardButton("📞 গ্রাহক সেবা", url="https://t.me"),
+            InlineKeyboardButton("🔐 লগ ইন", url=ADMIN_LINK)
+        ],
+        # ৩. ৪টি রিঅ্যাকশন বাটন
         [
             InlineKeyboardButton(love_text, callback_data=f"react_{msg_id}_love"),
             InlineKeyboardButton(fire_text, callback_data=f"react_{msg_id}_fire"),
@@ -77,7 +77,34 @@ def get_combined_markup(msg_id):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# --- বাটনে ক্লিক করলে রিঅ্যাকশন কাউন্ট করার ফাংশন ---
+# --- নতুন মেম্বার জয়েন করলে বাটনসহ ওয়েলকাম মেসেজ দেওয়ার ফাংশন ---
+async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+            
+        user_mention = member.mention_html()
+        
+        welcome_text = (
+            f"👋 <b>স্বাগতম {user_mention}, আমাদের গ্রুপে আপনাকে স্বাগতম!</b>\n\n"
+            f"🎮 গেম খেলতে এবং আমাদের অফিশিয়াল সার্ভিসে যুক্ত হতে নিচের বাটনগুলো ব্যবহার করুন:"
+        )
+        
+        unique_welcome_id = f"welcome_{member.id}"
+        reply_markup = get_admin_combined_markup(unique_welcome_id)
+        
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=welcome_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                link_preview_options=LinkPreviewOptions(is_disabled=True)
+            )
+        except Exception as e:
+            print(f"Error sending welcome message: {e}")
+
+# --- বাটনে ক্লিক করলে রিঅ্যাকশন কাউন্ট করার ফাংশন (মেম্বার ও এডমিন উভয়ের জন্য ডাইনামিক) ---
 async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -112,19 +139,25 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("আপনি রিঅ্যাকশন দিয়েছেন!")
         
     try:
-        await query.edit_message_reply_markup(reply_markup=get_combined_markup(msg_id))
+        # ওয়েলকাম বা এডমিন মেসেজ হলে ফুল অফার বাটনসহ আপডেট হবে, মেম্বার হলে শুধু রিঅ্যাকশন বাটন আপডেট হবে
+        if "welcome_" in msg_id or "admin_" in msg_id:
+            await query.edit_message_reply_markup(reply_markup=get_admin_combined_markup(msg_id))
+        else:
+            await query.edit_message_reply_markup(reply_markup=get_member_markup(msg_id))
     except Exception as e:
         print(f"Error updating reaction markup: {e}")
 
-# --- শুধুমাত্র এডমিনের পোস্টে অফার ফুটার ও বাটন যুক্ত করার ফাংশন ---
-async def process_admin_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- গ্রুপে আসা সমস্ত মেসেজ ফিল্টার ও প্রসেস করার মূল ফাংশন ---
+async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message: 
         return
     
+    # বট নিজের পাঠানো মেসেজ হলে এড়িয়ে যাবে
     if message.from_user and message.from_user.is_bot: 
         return
-    
+
+    # পোস্টদাতা অ্যাডমিন কিনা তা চেক করা
     is_admin = False
     try:
         chat_admins = await context.bot.get_chat_administrators(update.effective_chat.id)
@@ -134,29 +167,27 @@ async def process_admin_posts(update: Update, context: ContextTypes.DEFAULT_TYPE
         print(f"Admin check error: {e}")
         return
 
-    if not is_admin:
-        return
+    # মেসেজের মূল টেক্সট ফরম্যাট নেওয়া
+    final_message = message.text_html if message.text_html else message.caption_html
+    if not final_message and message.text:
+        final_message = message.text
 
-    text_to_check = message.text_html if message.text_html else message.caption_html
-    
-    if text_to_check:
-        # নিচে শুধুমাত্র গ্রাহক সেবা ও লগইন এর টেক্সট লিংক থাকবে (বোনাস লিংকটি বাটনে চলে গেছে)
-        custom_footer = (
-            f"\n\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f" <b>গ্রাহক সেবা</b> - <a href='https://t.me'>t.me/f999com</a>\n"
-            f" <b>লগ ইন</b> - <a href='{ADMIN_LINK}'>{ADMIN_LINK}</a>"
-        )
-        
-        final_message = text_to_check + custom_footer
-        
+    if final_message:
         try:
+            # আসল পোস্টটি গ্রুপ থেকে ডিলিট করা
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
             
             preview_disabled = LinkPreviewOptions(is_disabled=True)
-            unique_msg_id = f"{update.effective_chat.id}{message.message_id}"
-            reply_markup = get_combined_markup(unique_msg_id)
             
+            # এডমিন এবং মেম্বারদের জন্য আলাদা বাটন সেট করা
+            if is_admin:
+                unique_msg_id = f"admin_{update.effective_chat.id}{message.message_id}"
+                reply_markup = get_admin_combined_markup(unique_msg_id)
+            else:
+                unique_msg_id = f"member_{update.effective_chat.id}{message.message_id}"
+                reply_markup = get_member_markup(unique_msg_id)
+            
+            # ছবিসহ পোস্ট হলে
             if message.photo:
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
@@ -165,7 +196,7 @@ async def process_admin_posts(update: Update, context: ContextTypes.DEFAULT_TYPE
                     parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
-            else:
+            else: # সাধারণ টেক্সট বা কোড হলে
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=final_message,
@@ -174,18 +205,19 @@ async def process_admin_posts(update: Update, context: ContextTypes.DEFAULT_TYPE
                     reply_markup=reply_markup
                 )
         except Exception as e:
-            print(f"Error handling admin message: {e}")
+            print(f"Error handling group message: {e}")
 
 def main():
     threading.Thread(target=run_server, daemon=True).start()
     
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # হ্যান্ডলারসমূহ সেটআপ করা
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     application.add_handler(CallbackQueryHandler(handle_reaction, pattern=r"^react_"))
-    application.add_handler(MessageHandler(filters.TEXT | filters.CAPTION, process_admin_posts))
+    application.add_handler(MessageHandler(filters.ALL, process_group_messages))
     
-    print("Your Bot is updated and running with bonus button and reactions...")
+    print("আপনার নিখুঁত কাস্টমাইজড টেলিগ্রাম বট সফলভাবে সচল হয়েছে...")
     application.run_polling()
 
 if __name__ == "__main__":
