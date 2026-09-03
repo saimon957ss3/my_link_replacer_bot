@@ -8,7 +8,8 @@ import threading
 
 # --- আপনার টোকেন এবং লিংক এখানে সেট করা হয়েছে ---
 BOT_TOKEN = "8857827625:AAH5atf8X3rktmiCKimGA4JgtFnMNNYG984"
-ADMIN_LINK = "https://f999game.com"
+ADMIN_LINK = "https://www.f999game.com/?dl=2mlug1"
+SUPPORT_BOT_LINK = "@f999com"
 # -------------------------------------------------------------
 
 # Render সার্ভার সচল রাখার জন্য ডামি ওয়েব সার্ভার
@@ -27,7 +28,7 @@ def run_server():
 # রিঅ্যাকশন কাউন্ট ট্র্যাক করার জন্য গ্লোবাল ডিকশনারি
 reactions_data = {}
 
-# --- শুধুমাত্র মেম্বারদের পোস্টের জন্য ৪টি রিঅ্যাকশন বাটন (অফার ছাড়া) ---
+# --- শুধুমাত্র মেম্বারদের পোস্টের জন্য ৪টি রিঅ্যাকশন বাটন ---
 def get_member_markup(msg_id):
     if msg_id not in reactions_data:
         reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
@@ -47,7 +48,7 @@ def get_member_markup(msg_id):
     ]]
     return InlineKeyboardMarkup(keyboard)
 
-# --- অ্যাডমিন বা বটের নিজের পোস্টের জন্য সব বাটন একসাথে (ফুল অফারসহ) ---
+# --- অ্যাডমিন বা বটের নিজের পোস্টের জন্য সব বাটন একসাথে ---
 def get_admin_combined_markup(msg_id):
     if msg_id not in reactions_data:
         reactions_data[msg_id] = {"love": 0, "fire": 0, "like": 0, "dislike": 0, "users": {}}
@@ -62,9 +63,9 @@ def get_admin_combined_markup(msg_id):
     keyboard = [
         # ১. আকর্ষণীয় রেজিস্ট্রেশন বোনাস বাটন
         [InlineKeyboardButton("🔴 রেজিস্ট্রেশন করে ২০০ টাকা বোনাস পান 🔴", url=ADMIN_LINK)],
-        # ২. গ্রাহক সেবা এবং লগ ইন বাটন (এক লাইনে পাশাপাশি)
+        # ২. গ্রাহক সেবা এবং লগ ইন বাটন (গ্রাহক সেবায় সাপোর্ট বটের লিংক দেওয়া হয়েছে)
         [
-            InlineKeyboardButton("📞 গ্রাহক সেবা", url="https://t.me"),
+            InlineKeyboardButton("📞 গ্রাহক সেবা", url=SUPPORT_BOT_LINK),
             InlineKeyboardButton("🔐 লগ ইন", url=ADMIN_LINK)
         ],
         # ৩. ৪টি রিঅ্যাকশন বাটন
@@ -104,7 +105,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             print(f"Error sending welcome message: {e}")
 
-# --- বাটনে ক্লিক করলে রিঅ্যাকশন কাউন্ট করার ফাংশন (মেম্বার ও এডমিন উভয়ের জন্য ডাইনামিক) ---
+# --- বাটনে ক্লিক করলে রিঅ্যাকশন কাউন্ট করার ফাংশন ---
 async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -139,7 +140,6 @@ async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("আপনি রিঅ্যাকশন দিয়েছেন!")
         
     try:
-        # ওয়েলকাম বা এডমিন মেসেজ হলে ফুল অফার বাটনসহ আপডেট হবে, মেম্বার হলে শুধু রিঅ্যাকশন বাটন আপডেট হবে
         if "welcome_" in msg_id or "admin_" in msg_id:
             await query.edit_message_reply_markup(reply_markup=get_admin_combined_markup(msg_id))
         else:
@@ -153,7 +153,6 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
     if not message: 
         return
     
-    # বট নিজের পাঠানো মেসেজ হলে এড়িয়ে যাবে
     if message.from_user and message.from_user.is_bot: 
         return
 
@@ -167,13 +166,21 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
         print(f"Admin check error: {e}")
         return
 
-    # মেসেজের মূল টেক্সট ফরম্যাট নেওয়া
+    # মেসেজের মূল টেক্সট বা ক্যাপশন নেওয়া
     final_message = message.text_html if message.text_html else message.caption_html
     if not final_message and message.text:
         final_message = message.text
 
     if final_message:
         try:
+            # মেম্বার পোস্ট করলে লিংকের ভেতরে অ্যাডমিন গেম লিংক বসানো হবে
+            if not is_admin:
+                url_pattern = r'(https?://[^\s<>"]+|www\.[^\s<>"]+)'
+                if re.search(url_pattern, final_message):
+                    def replace_with_cloak(match):
+                        return f'<a href="{ADMIN_LINK}">{match.group(0)}</a>'
+                    final_message = re.sub(url_pattern, replace_with_cloak, final_message)
+
             # আসল পোস্টটি গ্রুপ থেকে ডিলিট করা
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message.message_id)
             
@@ -209,15 +216,13 @@ async def process_group_messages(update: Update, context: ContextTypes.DEFAULT_T
 
 def main():
     threading.Thread(target=run_server, daemon=True).start()
-    
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # হ্যান্ডলারসমূহ সেটআপ করা
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     application.add_handler(CallbackQueryHandler(handle_reaction, pattern=r"^react_"))
     application.add_handler(MessageHandler(filters.ALL, process_group_messages))
     
-    print("আপনার নিখুঁত কাস্টমাইজড টেলিগ্রাম বট সফলভাবে সচল হয়েছে...")
+    print("নতুন সাপোর্ট বটের লিংক সহ আপনার কাস্টম বট সফলভাবে সচল হয়েছে...")
     application.run_polling()
 
 if __name__ == "__main__":
